@@ -17,6 +17,10 @@ type CheckResult struct {
 }
 
 func Check(target string) CheckResult {
+	return CheckWithTimeout(target, 5*time.Second)
+}
+
+func CheckWithTimeout(target string, timeout time.Duration) CheckResult {
 	target = strings.TrimSpace(target)
 
 	parsedURL, err := url.ParseRequestURI(target)
@@ -29,8 +33,16 @@ func Check(target string) CheckResult {
 		}
 	}
 
+	if timeout <= 0 {
+		return CheckResult{
+			URL:    target,
+			Status: "INVALID",
+			Error:  "Timeout must be greater than zero",
+		}
+	}
+
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: timeout,
 	}
 
 	start := time.Now()
