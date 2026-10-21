@@ -24,15 +24,28 @@ func main() {
 	latency := time.Since(start)
 
 	if err != nil {
-		fmt.Printf("DOWN %s: %v\n", target, err)
+		fmt.Printf("DOWN %s | Error: %v | Latency: %s\n",
+			target, err, latency.Round(time.Millisecond))
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf(
-		"UP %s | HTTP %d | Latency %s\n",
+	status := "UP"
+	exitCode := 0
+
+	if resp.StatusCode >= 400 {
+		status = "DOWN"
+		exitCode = 1
+	}
+
+	fmt.Printf("%s %s | HTTP %d | Latency %s\n",
+		status,
 		target,
 		resp.StatusCode,
 		latency.Round(time.Millisecond),
 	)
+
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }
