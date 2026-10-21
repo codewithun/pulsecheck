@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestCheck(t *testing.T) {
@@ -66,5 +67,25 @@ func TestCheckInvalidScheme(t *testing.T) {
 
 	if result.Status != "INVALID" {
 		t.Errorf("got status %q, want INVALID", result.Status)
+	}
+}
+
+func TestCheckTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer server.Close()
+
+	result := CheckWithTimeout(server.URL, 50*time.Millisecond)
+
+	if result.Status != "DOWN" {
+		t.Errorf("got status %q, want DOWN", result.Status)
+	}
+
+	if result.Error == "" {
+		t.Error("expected timeout error, got no error")
 	}
 }
