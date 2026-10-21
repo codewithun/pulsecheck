@@ -3,24 +3,34 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) != 2 {
 		fmt.Println("Usage: pulsecheck <url>")
 		os.Exit(1)
 	}
 
-	target := os.Args[1]
+	target := strings.TrimSpace(os.Args[1])
+
+	parsedURL, err := url.ParseRequestURI(target)
+	if err != nil || parsedURL.Host == "" ||
+		(parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		fmt.Printf("Invalid URL: %s\n", target)
+		fmt.Println("URL must start with http:// or https://")
+		os.Exit(1)
+	}
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
 	start := time.Now()
-	resp, err := client.Get(target)
+	resp, err := client.Get(parsedURL.String())
 	latency := time.Since(start)
 
 	if err != nil {
@@ -31,11 +41,8 @@ func main() {
 	defer resp.Body.Close()
 
 	status := "UP"
-	exitCode := 0
-
 	if resp.StatusCode >= 400 {
 		status = "DOWN"
-		exitCode = 1
 	}
 
 	fmt.Printf("%s %s | HTTP %d | Latency %s\n",
@@ -45,7 +52,7 @@ func main() {
 		latency.Round(time.Millisecond),
 	)
 
-	if exitCode != 0 {
-		os.Exit(exitCode)
+	if status == "DOWN" {
+		os.Exit(1)
 	}
 }
