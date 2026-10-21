@@ -60,3 +60,11 @@ func TestCheckInvalidURL(t *testing.T) {
 		t.Errorf("got status %q, want INVALID", result.Status)
 	}
 }
+
+func TestCheckInvalidScheme(t *testing.T) {
+	result := Check("ftp://example.com")
+
+	if result.Status != "INVALID" {
+		t.Errorf("got status %q, want INVALID", result.Status)
+	}
+}

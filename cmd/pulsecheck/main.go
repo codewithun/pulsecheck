@@ -6,15 +6,28 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Usage: pulsecheck <url>")
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: pulsecheck <url1> [url2] [url3] ...")
 		os.Exit(1)
 	}
 
-	result := Check(os.Args[1])
-	fmt.Println(result.String())
+	up := 0
+	down := 0
 
-	if result.Status != "UP" {
+	for _, target := range os.Args[1:] {
+		result := Check(target)
+		fmt.Println(result.String())
+
+		if result.Status == "UP" {
+			up++
+		} else {
+			down++
+		}
+	}
+
+	fmt.Printf("\nSummary: %d UP, %d DOWN\n", up, down)
+
+	if down > 0 {
 		os.Exit(1)
 	}
 }
