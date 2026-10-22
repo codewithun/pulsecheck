@@ -89,3 +89,28 @@ func TestCheckTimeout(t *testing.T) {
 		t.Error("expected timeout error, got no error")
 	}
 }
+
+func TestCheckRedirect(t *testing.T) {
+	finalServer := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer finalServer.Close()
+
+	redirectServer := httptest.NewServer(http.RedirectHandler(
+		finalServer.URL,
+		http.StatusFound,
+	))
+	defer redirectServer.Close()
+
+	result := Check(redirectServer.URL)
+
+	if result.Status != "UP" {
+		t.Errorf("got status %q, want UP", result.Status)
+	}
+
+	if result.StatusCode != http.StatusOK {
+		t.Errorf("got HTTP code %d, want 200", result.StatusCode)
+	}
+}
