@@ -11,12 +11,13 @@ import (
 )
 
 type CheckResult struct {
-	URL        string
-	Status     string
-	StatusCode int
-	Latency    time.Duration
-	Error      string
-	Protocol   string
+	URL        string        `json:"url"`
+	Status     string        `json:"status"`
+	StatusCode int           `json:"status_code,omitempty"`
+	Latency    time.Duration `json:"-"`
+	LatencyMS  float64       `json:"latency_ms"`
+	Error      string        `json:"error,omitempty"`
+	Protocol   string        `json:"protocol"`
 }
 
 func Check(target string) CheckResult {
