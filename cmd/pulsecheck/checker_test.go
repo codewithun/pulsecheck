@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -112,5 +113,31 @@ func TestCheckRedirect(t *testing.T) {
 
 	if result.StatusCode != http.StatusOK {
 		t.Errorf("got HTTP code %d, want 200", result.StatusCode)
+	}
+}
+
+func TestCheckTCPAvailablePort(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start test listener: %v", err)
+	}
+	defer listener.Close()
+
+	result := CheckTCP(listener.Addr().String(), time.Second)
+
+	if result.Status != "UP" {
+		t.Errorf("expected UP, got %s: %s", result.Status, result.Error)
+	}
+
+	if result.Protocol != "TCP" {
+		t.Errorf("expected TCP protocol, got %q", result.Protocol)
+	}
+}
+
+func TestCheckTCPInvalidAddress(t *testing.T) {
+	result := CheckTCP("invalid-address", time.Second)
+
+	if result.Status != "INVALID" {
+		t.Errorf("expected INVALID, got %s", result.Status)
 	}
 }

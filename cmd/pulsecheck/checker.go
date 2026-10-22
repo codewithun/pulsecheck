@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,6 +16,7 @@ type CheckResult struct {
 	StatusCode int
 	Latency    time.Duration
 	Error      string
+	Protocol   string
 }
 
 func Check(target string) CheckResult {
@@ -41,9 +44,7 @@ func CheckWithTimeout(target string, timeout time.Duration) CheckResult {
 		}
 	}
 
-	client := &http.Client{
-		Timeout: timeout,
-	}
+	client := &http.Client{Timeout: timeout}
 
 	start := time.Now()
 	resp, err := client.Get(parsedURL.String())
@@ -69,17 +70,79 @@ func CheckWithTimeout(target string, timeout time.Duration) CheckResult {
 		Status:     status,
 		StatusCode: resp.StatusCode,
 		Latency:    latency,
+		Protocol:   "HTTP",
+	}
+}
+
+func CheckTCP(target string, timeout time.Duration) CheckResult {
+	target = strings.TrimSpace(target)
+
+	host, port, err := net.SplitHostPort(target)
+	if err != nil || host == "" {
+		return CheckResult{
+			URL:      target,
+			Status:   "INVALID",
+			Error:    "Address must use host:port format, e.g. localhost:8080",
+			Protocol: "TCP",
+		}
+	}
+
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return CheckResult{
+			URL:      target,
+			Status:   "INVALID",
+			Error:    "Port must be a number between 1 and 65535",
+			Protocol: "TCP",
+		}
+	}
+
+	if timeout <= 0 {
+		return CheckResult{
+			URL:      target,
+			Status:   "INVALID",
+			Error:    "Timeout must be greater than zero",
+			Protocol: "TCP",
+		}
+	}
+
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", target, timeout)
+	latency := time.Since(start)
+
+	if err != nil {
+		return CheckResult{
+			URL:      target,
+			Status:   "DOWN",
+			Latency:  latency,
+			Error:    err.Error(),
+			Protocol: "TCP",
+		}
+	}
+	conn.Close()
+
+	return CheckResult{
+		URL:      target,
+		Status:   "UP",
+		Latency:  latency,
+		Protocol: "TCP",
 	}
 }
 
 func (r CheckResult) String() string {
 	if r.Error != "" {
 		if r.Status == "INVALID" {
-			return fmt.Sprintf("Invalid URL: %s\n%s", r.URL, r.Error)
+			return fmt.Sprintf("Invalid %s target: %s | %s",
+				r.Protocol, r.URL, r.Error)
 		}
 
 		return fmt.Sprintf("%s %s | Error: %s | Latency: %s",
 			r.Status, r.URL, r.Error, r.Latency.Round(time.Millisecond))
+	}
+
+	if r.Protocol == "TCP" {
+		return fmt.Sprintf("%s %s | TCP connection successful | Latency: %s",
+			r.Status, r.URL, r.Latency.Round(time.Millisecond))
 	}
 
 	return fmt.Sprintf("%s %s | HTTP %d | Latency %s",
