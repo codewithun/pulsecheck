@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          GOOS=darwin GOARCH=arm64 \
+            go build -o dist/pulsecheck-darwin-arm64 ./cmd/pulsecheck
+
+          GOOS=linux GOARCH=amd64 \
+            go build -o dist/pulsecheck-linux-amd64 ./cmd/pulsecheck
+
+          GOOS=linux GOARCH=arm64 \
+            go build -o dist/pulsecheck-linux-arm64 ./cmd/pulsecheck
+
+      - name: Package binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tar -czf dist/pulsecheck-${GITHUB_REF_NAME}-darwin-arm64.tar.gz \
+            -C dist pulsecheck-darwin-arm64
+
+          tar -czf dist/pulsecheck-${GITHUB_REF_NAME}-linux-amd64.tar.gz \
+            -C dist pulsecheck-linux-amd64
+
+          tar -czf dist/pulsecheck-${GITHUB_REF_NAME}-linux-arm64.tar.gz \
+            -C dist pulsecheck-linux-arm64
+
+          cd dist
+          shasum -a 256 pulsecheck-*.tar.gz > checksums.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/pulsecheck-"$GITHUB_REF_NAME"-darwin-arm64.tar.gz \
+            dist/pulsecheck-"$GITHUB_REF_NAME"-linux-amd64.tar.gz \
+            dist/pulsecheck-"$GITHUB_REF_NAME"-linux-arm64.tar.gz \
+            dist/checksums.txt \
+            --title "PulseCheck $GITHUB_REF_NAME" \
+            --generate-notes
