@@ -141,3 +141,84 @@ func TestCheckTCPInvalidAddress(t *testing.T) {
 		t.Errorf("expected INVALID, got %s", result.Status)
 	}
 }
+
+func TestCheckTargetsHTTP(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer server.Close()
+
+	report := CheckTargets(
+		[]string{server.URL},
+		time.Second,
+		false,
+	)
+
+	if len(report.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(report.Results))
+	}
+
+	if report.Results[0].Status != "UP" {
+		t.Errorf("expected UP, got %s", report.Results[0].Status)
+	}
+
+	if report.Summary.Up != 1 || report.Summary.Down != 0 {
+		t.Errorf("unexpected summary: %+v", report.Summary)
+	}
+
+	if report.Results[0].LatencyMS < 0 {
+		t.Errorf("latency_ms cannot be negative")
+	}
+}
+
+func TestCheckTargetsTCP(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to start test listener: %v", err)
+	}
+	defer listener.Close()
+
+	report := CheckTargets(
+		[]string{listener.Addr().String()},
+		time.Second,
+		true,
+	)
+
+	if len(report.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(report.Results))
+	}
+
+	if report.Results[0].Status != "UP" {
+		t.Errorf("expected UP, got %s", report.Results[0].Status)
+	}
+
+	if report.Results[0].Protocol != "TCP" {
+		t.Errorf("expected TCP, got %s", report.Results[0].Protocol)
+	}
+
+	if report.Summary.Up != 1 || report.Summary.Down != 0 {
+		t.Errorf("unexpected summary: %+v", report.Summary)
+	}
+}
+
+func TestCheckTargetsInvalidTarget(t *testing.T) {
+	report := CheckTargets(
+		[]string{"invalid-address"},
+		time.Second,
+		true,
+	)
+
+	if len(report.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(report.Results))
+	}
+
+	if report.Results[0].Status != "INVALID" {
+		t.Errorf("expected INVALID, got %s", report.Results[0].Status)
+	}
+
+	if report.Summary.Up != 0 || report.Summary.Down != 1 {
+		t.Errorf("unexpected summary: %+v", report.Summary)
+	}
+}

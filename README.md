@@ -86,6 +86,28 @@ go run ./cmd/pulsecheck -tcp -timeout 2s localhost:22 localhost:5432
 
 TCP targets must use the `host:port` format, and port numbers must be between 1 and 65535.
 
+### Periodic checks
+
+Repeat health checks at a specified interval:
+
+```bash
+go run ./cmd/pulsecheck -interval 10s https://google.com
+```
+
+Monitor TCP connectivity:
+
+```bash
+go run ./cmd/pulsecheck -tcp -interval 5s localhost:5432
+```
+
+Periodic JSON output uses JSON Lines: each line is a separate JSON report.
+
+```bash
+go run ./cmd/pulsecheck -json -interval 10s https://google.com
+```
+
+Press `Ctrl+C` to stop periodic checks.
+
 ## Example Output
 
 HTTP check:
