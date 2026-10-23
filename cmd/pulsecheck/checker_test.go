@@ -154,6 +154,7 @@ func TestCheckTargetsHTTP(t *testing.T) {
 		[]string{server.URL},
 		time.Second,
 		false,
+		10,
 	)
 
 	if len(report.Results) != 1 {
@@ -184,6 +185,7 @@ func TestCheckTargetsTCP(t *testing.T) {
 		[]string{listener.Addr().String()},
 		time.Second,
 		true,
+		10,
 	)
 
 	if len(report.Results) != 1 {
@@ -208,6 +210,7 @@ func TestCheckTargetsInvalidTarget(t *testing.T) {
 		[]string{"invalid-address"},
 		time.Second,
 		true,
+		10,
 	)
 
 	if len(report.Results) != 1 {
@@ -220,5 +223,35 @@ func TestCheckTargetsInvalidTarget(t *testing.T) {
 
 	if report.Summary.Up != 0 || report.Summary.Down != 1 {
 		t.Errorf("unexpected summary: %+v", report.Summary)
+	}
+}
+
+func TestCheckTargetsWithConcurrency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	targets := []string{
+		server.URL,
+		server.URL,
+		server.URL,
+	}
+
+	report := CheckTargets(targets, time.Second, false, 2)
+
+	if len(report.Results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(report.Results))
+	}
+
+	if report.Summary.Up != 3 {
+		t.Errorf("expected 3 UP, got %d", report.Summary.Up)
+	}
+
+	if report.Summary.Down != 0 {
+		t.Errorf("expected 0 DOWN, got %d", report.Summary.Down)
 	}
 }
