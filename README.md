@@ -9,6 +9,7 @@ PulseCheck helps developers and system administrators quickly verify whether a w
 - **HTTP health checks** — Check one or multiple HTTP/HTTPS endpoints.
 - **TCP port checks** — Verify connectivity to TCP services using host and port.
 - **Configurable timeout** — Set the maximum time allowed for each check.
+- **Concurrent health checks** — Check multiple targets simultaneously with a configurable concurrency limit (default: 10).
 - **Latency measurement** — Display how long each check takes.
 - **Input validation** — Reject invalid URLs, addresses, and port numbers.
 - **Summary report** — Count successful and failed checks.
@@ -108,6 +109,13 @@ go run ./cmd/pulsecheck -json -interval 10s https://google.com
 
 Press `Ctrl+C` to stop periodic checks.
 
+### Concurrent Checks
+
+Check multiple targets simultaneously (default concurrency: 10):
+
+````bash
+go run ./cmd/pulsecheck -concurrency 10 https://google.com https://github.com https://go.dev
+
 ## Example Output
 
 HTTP check:
@@ -116,7 +124,7 @@ HTTP check:
 UP https://google.com | HTTP 200 | Latency 120ms
 
 Summary: 1 UP, 0 DOWN
-```
+````
 
 TCP check:
 
