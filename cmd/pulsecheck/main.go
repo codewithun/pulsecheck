@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -42,6 +43,11 @@ func main() {
 		"Repeat checks at the specified interval (e.g. 10s); 0 disables repetition",
 	)
 
+	concurrency := flag.Int(
+		"concurrency", 10,
+		"Maximum number of targets to check simultaneously",
+	)
+
 	flag.Parse()
 	targets := flag.Args()
 
@@ -55,6 +61,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *concurrency < 1 {
+		fmt.Fprintln(os.Stderr, "Error: concurrency must be at least 1")
+		os.Exit(1)
+	}
+
 	if len(targets) == 0 {
 		fmt.Fprintln(os.Stderr,
 			"Usage: pulsecheck [-tcp] [-json] [-timeout duration] [-interval duration] <target1> [target2] ...")
@@ -63,7 +74,7 @@ func main() {
 	}
 
 	run := func() bool {
-		report := CheckTargets(targets, *timeout, *tcpMode)
+		report := CheckTargets(targets, *timeout, *tcpMode, *concurrency)
 
 		if *jsonMode {
 			encoder := json.NewEncoder(os.Stdout)
@@ -130,23 +141,47 @@ func CheckTargets(
 	targets []string,
 	timeout time.Duration,
 	tcpMode bool,
+	concurrency int,
 ) CheckReport {
 	report := CheckReport{
-		Results: make([]CheckResult, 0, len(targets)),
+		Results: make([]CheckResult, len(targets)),
 	}
 
-	for _, target := range targets {
-		var result CheckResult
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if concurrency > len(targets) {
+		concurrency = len(targets)
+	}
+	if len(targets) == 0 {
+		return report
+	}
 
-		if tcpMode {
-			result = CheckTCP(target, timeout)
-		} else {
-			result = CheckWithTimeout(target, timeout)
-		}
+	semaphore := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
 
-		result.LatencyMS = float64(result.Latency) / float64(time.Millisecond)
-		report.Results = append(report.Results, result)
+	for i, target := range targets {
+		semaphore <- struct{}{}
+		wg.Add(1)
 
+		go func(i int, target string) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			if tcpMode {
+				report.Results[i] = CheckTCP(target, timeout)
+			} else {
+				report.Results[i] = CheckWithTimeout(target, timeout)
+			}
+
+			report.Results[i].LatencyMS = float64(report.Results[i].Latency) /
+				float64(time.Millisecond)
+		}(i, target)
+	}
+
+	wg.Wait()
+
+	for _, result := range report.Results {
 		if result.Status == "UP" {
 			report.Summary.Up++
 		} else {
