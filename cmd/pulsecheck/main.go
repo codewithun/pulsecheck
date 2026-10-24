@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -53,6 +54,16 @@ func main() {
 		"Number of retries when a check fails",
 	)
 
+	csvMode := flag.Bool(
+		"csv", false,
+		"Output results as CSV",
+	)
+
+	outputFile := flag.String(
+		"output", "",
+		"Write results to a file instead of standard output",
+	)
+
 	flag.Parse()
 	targets := flag.Args()
 
@@ -94,10 +105,58 @@ func main() {
 			*retries,
 		)
 
-		if *jsonMode {
+		if *csvMode {
+			var output *os.File
+			var err error
+
+			if *outputFile != "" {
+				output, err = os.Create(*outputFile)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "Error creating output file:", err)
+					os.Exit(1)
+				}
+				defer output.Close()
+			} else {
+				output = os.Stdout
+			}
+
+			writer := csv.NewWriter(output)
+			if err := writer.Write([]string{
+				"url",
+				"status",
+				"status_code",
+				"latency_ms",
+				"error",
+				"protocol",
+			}); err != nil {
+				fmt.Fprintln(os.Stderr, "Error writing CSV header:", err)
+				os.Exit(1)
+			}
+
+			for _, result := range report.Results {
+				record := []string{
+					result.URL,
+					result.Status,
+					fmt.Sprintf("%d", result.StatusCode),
+					fmt.Sprintf("%.2f", result.LatencyMS),
+					result.Error,
+					result.Protocol,
+				}
+
+				if err := writer.Write(record); err != nil {
+					fmt.Fprintln(os.Stderr, "Error writing CSV:", err)
+					os.Exit(1)
+				}
+			}
+
+			writer.Flush()
+			if err := writer.Error(); err != nil {
+				fmt.Fprintln(os.Stderr, "Error flushing CSV:", err)
+				os.Exit(1)
+			}
+		} else if *jsonMode {
 			encoder := json.NewEncoder(os.Stdout)
 
-			// In periodic mode, each line is a separate JSON report.
 			if *interval == 0 {
 				encoder.SetIndent("", "  ")
 			}
