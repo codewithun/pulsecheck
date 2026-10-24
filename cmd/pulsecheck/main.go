@@ -48,6 +48,11 @@ func main() {
 		"Maximum number of targets to check simultaneously",
 	)
 
+	retries := flag.Int(
+		"retries", 0,
+		"Number of retries when a check fails",
+	)
+
 	flag.Parse()
 	targets := flag.Args()
 
@@ -66,21 +71,33 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *retries < 0 {
+		fmt.Fprintln(os.Stderr, "Error: retries cannot be negative")
+		os.Exit(1)
+	}
+
 	if len(targets) == 0 {
-		fmt.Fprintln(os.Stderr,
-			"Usage: pulsecheck [-tcp] [-json] [-timeout duration] [-interval duration] <target1> [target2] ...")
+		fmt.Fprintln(
+			os.Stderr,
+			"Usage: pulsecheck [-tcp] [-json] [-timeout duration] [-interval duration] [-concurrency n] [-retries n] <target1> [target2] ...",
+		)
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
 	run := func() bool {
-		report := CheckTargets(targets, *timeout, *tcpMode, *concurrency)
+		report := CheckTargets(
+			targets,
+			*timeout,
+			*tcpMode,
+			*concurrency,
+			*retries,
+		)
 
 		if *jsonMode {
 			encoder := json.NewEncoder(os.Stdout)
 
 			// In periodic mode, each line is a separate JSON report.
-			// This format is commonly called JSON Lines.
 			if *interval == 0 {
 				encoder.SetIndent("", "  ")
 			}
@@ -96,8 +113,11 @@ func main() {
 				fmt.Println(result.String())
 			}
 
-			fmt.Printf("Summary: %d UP, %d DOWN\n",
-				report.Summary.Up, report.Summary.Down)
+			fmt.Printf(
+				"Summary: %d UP, %d DOWN\n",
+				report.Summary.Up,
+				report.Summary.Down,
+			)
 		}
 
 		return report.Summary.Down == 0
@@ -117,9 +137,11 @@ func main() {
 	)
 	defer stop()
 
-	fmt.Fprintf(os.Stderr,
+	fmt.Fprintf(
+		os.Stderr,
 		"Starting periodic checks every %s. Press Ctrl+C to stop.\n",
-		*interval)
+		*interval,
+	)
 
 	run()
 
@@ -142,9 +164,14 @@ func CheckTargets(
 	timeout time.Duration,
 	tcpMode bool,
 	concurrency int,
+	retries int,
 ) CheckReport {
 	report := CheckReport{
 		Results: make([]CheckResult, len(targets)),
+	}
+
+	if len(targets) == 0 {
+		return report
 	}
 
 	if concurrency < 1 {
@@ -152,9 +179,6 @@ func CheckTargets(
 	}
 	if concurrency > len(targets) {
 		concurrency = len(targets)
-	}
-	if len(targets) == 0 {
-		return report
 	}
 
 	semaphore := make(chan struct{}, concurrency)
@@ -166,16 +190,30 @@ func CheckTargets(
 
 		go func(i int, target string) {
 			defer wg.Done()
-			defer func() { <-semaphore }()
+			defer func() {
+				<-semaphore
+			}()
 
-			if tcpMode {
-				report.Results[i] = CheckTCP(target, timeout)
-			} else {
-				report.Results[i] = CheckWithTimeout(target, timeout)
+			var result CheckResult
+
+			// retries=2 means up to 3 total attempts.
+			for attempt := 0; attempt <= retries; attempt++ {
+				if tcpMode {
+					result = CheckTCP(target, timeout)
+				} else {
+					result = CheckWithTimeout(target, timeout)
+				}
+
+				// Retry only failed checks, not invalid targets.
+				if result.Status != "DOWN" {
+					break
+				}
 			}
 
-			report.Results[i].LatencyMS = float64(report.Results[i].Latency) /
+			result.LatencyMS = float64(result.Latency) /
 				float64(time.Millisecond)
+
+			report.Results[i] = result
 		}(i, target)
 	}
 

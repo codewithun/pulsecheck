@@ -14,6 +14,7 @@ PulseCheck helps developers and system administrators quickly verify whether a w
 - **Input validation** — Reject invalid URLs, addresses, and port numbers.
 - **Summary report** — Count successful and failed checks.
 - **Automation-friendly exit codes** — Return a non-zero exit code when a check fails.
+- **Automatic retries** — Retry failed HTTP or TCP checks with a configurable number of attempts.
 
 ## Requirements
 
@@ -136,6 +137,13 @@ Summary: 1 UP, 0 DOWN
 
 Output and latency values depend on the target and network conditions.
 
+### Retry Failed Checks
+
+Retry failed checks up to 2 times (3 attempts maximum per target):
+
+````bash
+go run ./cmd/pulsecheck -retries 2 https://google.com https://github.com
+
 ## Status Definitions
 
 | Status    | Meaning                                                                                                         |
@@ -159,7 +167,7 @@ Run unit tests:
 
 ```bash
 go test ./...
-```
+````
 
 Check code formatting:
 

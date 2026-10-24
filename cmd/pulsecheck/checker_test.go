@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -155,6 +156,7 @@ func TestCheckTargetsHTTP(t *testing.T) {
 		time.Second,
 		false,
 		10,
+		0,
 	)
 
 	if len(report.Results) != 1 {
@@ -186,6 +188,7 @@ func TestCheckTargetsTCP(t *testing.T) {
 		time.Second,
 		true,
 		10,
+		0,
 	)
 
 	if len(report.Results) != 1 {
@@ -211,6 +214,7 @@ func TestCheckTargetsInvalidTarget(t *testing.T) {
 		time.Second,
 		true,
 		10,
+		0,
 	)
 
 	if len(report.Results) != 1 {
@@ -241,7 +245,7 @@ func TestCheckTargetsWithConcurrency(t *testing.T) {
 		server.URL,
 	}
 
-	report := CheckTargets(targets, time.Second, false, 2)
+	report := CheckTargets(targets, time.Second, false, 2, 0)
 
 	if len(report.Results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(report.Results))
@@ -253,5 +257,36 @@ func TestCheckTargetsWithConcurrency(t *testing.T) {
 
 	if report.Summary.Down != 0 {
 		t.Errorf("expected 0 DOWN, got %d", report.Summary.Down)
+	}
+}
+
+func TestCheckTargetsRetriesFailedCheck(t *testing.T) {
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if attempts.Add(1) < 3 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer server.Close()
+
+	report := CheckTargets(
+		[]string{server.URL},
+		time.Second,
+		false,
+		1,
+		2,
+	)
+
+	if report.Results[0].Status != "UP" {
+		t.Errorf("expected UP after retries, got %s", report.Results[0].Status)
+	}
+
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("expected 3 attempts, got %d", got)
 	}
 }
