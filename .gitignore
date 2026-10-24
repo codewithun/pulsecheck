@@ -1,2 +1,5 @@
 /pulsecheck
 /dist/
+/central-api
+/probe-agent
+.env
