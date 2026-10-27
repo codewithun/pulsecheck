@@ -110,3 +110,74 @@ func TestCheckHTTPInvalidTarget(t *testing.T) {
 		t.Error("expected an error message for invalid target")
 	}
 }
+
+func TestSendResultSuccess(t *testing.T) {
+	token := "test-token"
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST, got %s", r.Method)
+			}
+
+			if r.URL.Path != "/api/v1/results" {
+				t.Errorf("unexpected path: %s", r.URL.Path)
+			}
+
+			if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+				t.Errorf("unexpected Authorization header: %q", got)
+			}
+
+			if got := r.Header.Get("Content-Type"); got != "application/json" {
+				t.Errorf("unexpected Content-Type: %q", got)
+			}
+
+			if r.ContentLength == 0 {
+				t.Error("expected a non-empty JSON request body")
+			}
+
+			w.WriteHeader(http.StatusCreated)
+		},
+	))
+	defer server.Close()
+
+	client := &http.Client{Timeout: time.Second}
+
+	result := CheckResult{
+		ProbeID:   "test-probe",
+		Target:    "https://example.com",
+		Status:    "UP",
+		LatencyMS: 12.5,
+		Protocol:  "HTTP",
+		CheckedAt: time.Now().UTC(),
+	}
+
+	err := sendResult(client, server.URL, token, result)
+	if err != nil {
+		t.Fatalf("expected successful send, got error: %v", err)
+	}
+}
+
+func TestSendResultRejectsUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		},
+	))
+	defer server.Close()
+
+	client := &http.Client{Timeout: time.Second}
+
+	result := CheckResult{
+		ProbeID:   "test-probe",
+		Target:    "https://example.com",
+		Status:    "UP",
+		Protocol:  "HTTP",
+		CheckedAt: time.Now().UTC(),
+	}
+
+	err := sendResult(client, server.URL, "wrong-token", result)
+	if err == nil {
+		t.Fatal("expected error when API returns 401 Unauthorized")
+	}
+}
