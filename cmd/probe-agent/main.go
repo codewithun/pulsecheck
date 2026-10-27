@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -26,14 +27,49 @@ type CheckResult struct {
 }
 
 func main() {
-	apiURL := flag.String("api", "http://localhost:8081", "Central API base URL")
-	target := flag.String("target", "https://example.com", "HTTP/HTTPS target to check")
-	interval := flag.Duration("interval", 30*time.Second, "Check interval")
-	timeout := flag.Duration("timeout", 5*time.Second, "Request timeout")
+	apiURL := flag.String(
+		"api",
+		"http://localhost:8081",
+		"Central API base URL",
+	)
+	protocol := flag.String(
+		"protocol",
+		"http",
+		"Check protocol: http or tcp",
+	)
+	target := flag.String(
+		"target",
+		"https://example.com",
+		"HTTP URL or TCP host:port to check",
+	)
+	interval := flag.Duration(
+		"interval",
+		30*time.Second,
+		"Check interval",
+	)
+	timeout := flag.Duration(
+		"timeout",
+		5*time.Second,
+		"Request or connection timeout",
+	)
+
 	flag.Parse()
 
 	if *interval <= 0 || *timeout <= 0 {
 		log.Fatal("interval and timeout must be positive")
+	}
+
+	selectedProtocol := strings.ToLower(strings.TrimSpace(*protocol))
+	if selectedProtocol != "http" && selectedProtocol != "tcp" {
+		log.Fatal("protocol must be either http or tcp")
+	}
+
+	if strings.TrimSpace(*target) == "" {
+		log.Fatal("target must not be empty")
+	}
+
+	if strings.TrimSpace(*apiURL) == "" {
+		log.Fatal("API URL must not be empty")
 	}
 
 	apiToken := os.Getenv("API_TOKEN")
@@ -48,22 +84,55 @@ func main() {
 
 	client := &http.Client{
 		Timeout: *timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(
+			req *http.Request,
+			via []*http.Request,
+		) error {
 			return http.ErrUseLastResponse
 		},
 	}
 
-	apiClient := &http.Client{Timeout: 5 * time.Second}
+	apiClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
 
-	log.Printf("Probe Agent %q started; target=%s interval=%s",
-		probeID, *target, *interval)
+	log.Printf(
+		"Probe Agent %q started; protocol=%s target=%s interval=%s timeout=%s",
+		probeID,
+		strings.ToUpper(selectedProtocol),
+		*target,
+		*interval,
+		*timeout,
+	)
 
 	for {
-		result := checkHTTP(client, probeID, *target)
-		log.Printf("Check result: target=%s status=%s latency=%.2fms",
-			result.Target, result.Status, result.LatencyMS)
+		var result CheckResult
 
-		if err := sendResult(apiClient, *apiURL, apiToken, result); err != nil {
+		switch selectedProtocol {
+		case "http":
+			result = checkHTTP(client, probeID, *target)
+		case "tcp":
+			result = checkTCP(probeID, *target, *timeout)
+		}
+
+		log.Printf(
+			"Check result: protocol=%s target=%s status=%s latency=%.2fms",
+			result.Protocol,
+			result.Target,
+			result.Status,
+			result.LatencyMS,
+		)
+
+		if result.Error != "" {
+			log.Printf("Check error: %s", result.Error)
+		}
+
+		if err := sendResult(
+			apiClient,
+			*apiURL,
+			apiToken,
+			result,
+		); err != nil {
 			log.Printf("Send result failed: %v", err)
 		}
 
@@ -71,7 +140,11 @@ func main() {
 	}
 }
 
-func checkHTTP(client *http.Client, probeID, target string) CheckResult {
+func checkHTTP(
+	client *http.Client,
+	probeID string,
+	target string,
+) CheckResult {
 	result := CheckResult{
 		ProbeID:   probeID,
 		Target:    target,
@@ -81,19 +154,28 @@ func checkHTTP(client *http.Client, probeID, target string) CheckResult {
 	}
 
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), client.Timeout)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		client.Timeout,
+	)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		target,
+		nil,
+	)
 	if err != nil {
 		result.Status = "INVALID"
 		result.Error = err.Error()
-		result.LatencyMS = float64(time.Since(start).Microseconds()) / 1000
+		result.LatencyMS = elapsedMilliseconds(start)
 		return result
 	}
 
 	resp, err := client.Do(req)
-	result.LatencyMS = float64(time.Since(start).Microseconds()) / 1000
+	result.LatencyMS = elapsedMilliseconds(start)
 
 	if err != nil {
 		result.Error = err.Error()
@@ -113,14 +195,70 @@ func checkHTTP(client *http.Client, probeID, target string) CheckResult {
 	return result
 }
 
-func sendResult(client *http.Client, apiURL, token string, result CheckResult) error {
+func checkTCP(
+	probeID string,
+	target string,
+	timeout time.Duration,
+) CheckResult {
+	result := CheckResult{
+		ProbeID:   probeID,
+		Target:    target,
+		Status:    "DOWN",
+		Protocol:  "TCP",
+		CheckedAt: time.Now().UTC(),
+	}
+
+	if timeout <= 0 {
+		result.Error = "timeout must be positive"
+		return result
+	}
+
+	if strings.TrimSpace(target) == "" {
+		result.Error = "target must not be empty"
+		return result
+	}
+
+	start := time.Now()
+
+	conn, err := net.DialTimeout("tcp", target, timeout)
+	result.LatencyMS = elapsedMilliseconds(start)
+
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+
+	if err := conn.Close(); err != nil {
+		result.Error = fmt.Sprintf("close TCP connection: %v", err)
+		return result
+	}
+
+	result.Status = "UP"
+	return result
+}
+
+func elapsedMilliseconds(start time.Time) float64 {
+	return float64(time.Since(start).Microseconds()) / 1000
+}
+
+func sendResult(
+	client *http.Client,
+	apiURL string,
+	token string,
+	result CheckResult,
+) error {
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("encode result: %w", err)
 	}
 
 	endpoint := strings.TrimRight(apiURL, "/") + "/api/v1/results"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		endpoint,
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -135,7 +273,9 @@ func sendResult(client *http.Client, apiURL, token string, result CheckResult) e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return errors.New("central API returned status " + resp.Status)
+		return errors.New(
+			"central API returned status " + resp.Status,
+		)
 	}
 
 	return nil

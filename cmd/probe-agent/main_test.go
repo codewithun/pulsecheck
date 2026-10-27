@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -179,5 +180,61 @@ func TestSendResultRejectsUnauthorized(t *testing.T) {
 	err := sendResult(client, server.URL, "wrong-token", result)
 	if err == nil {
 		t.Fatal("expected error when API returns 401 Unauthorized")
+	}
+}
+
+func TestCheckTCPSuccess(t *testing.T) {
+	server, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("start TCP listener: %v", err)
+	}
+	defer server.Close()
+
+	go func() {
+		conn, err := server.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	result := checkTCP(
+		"test-probe",
+		server.Addr().String(),
+		time.Second,
+	)
+
+	if result.Status != "UP" {
+		t.Fatalf(
+			"expected UP, got %q; error=%s",
+			result.Status,
+			result.Error,
+		)
+	}
+
+	if result.Protocol != "TCP" {
+		t.Errorf(
+			"expected protocol TCP, got %q",
+			result.Protocol,
+		)
+	}
+
+	if result.LatencyMS < 0 {
+		t.Error("latency must not be negative")
+	}
+}
+
+func TestCheckTCPInvalidTarget(t *testing.T) {
+	result := checkTCP(
+		"test-probe",
+		"127.0.0.1:0",
+		200*time.Millisecond,
+	)
+
+	if result.Status != "DOWN" {
+		t.Errorf("expected DOWN, got %q", result.Status)
+	}
+
+	if result.Error == "" {
+		t.Error("expected an error message for failed TCP connection")
 	}
 }
