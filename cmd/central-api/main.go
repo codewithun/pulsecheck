@@ -43,6 +43,10 @@ type ResultsResponse struct {
 	HasMore bool          `json:"has_more"`
 }
 
+type SummaryResponse struct {
+	Data []CheckResult `json:"data"`
+}
+
 func main() {
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -303,6 +307,82 @@ func main() {
 				Limit:   limit,
 				Offset:  offset,
 				HasMore: hasMore,
+			})
+		},
+	)))
+
+	mux.Handle("GET /api/v1/summary", authenticate(apiToken, http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			rows, err := db.QueryContext(ctx, `
+			SELECT probe_id, target, status, status_code,
+			       latency_ms, error, protocol, checked_at
+			FROM (
+				SELECT DISTINCT ON (probe_id, target)
+				       probe_id, target, status, status_code,
+				       latency_ms, error, protocol, checked_at, id
+				FROM check_results
+				ORDER BY probe_id, target, checked_at DESC, id DESC
+			) AS latest
+			ORDER BY checked_at DESC, id DESC
+		`)
+			if err != nil {
+				log.Printf("Query monitoring summary: %v", err)
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+					Error: "failed to retrieve summary",
+				})
+				return
+			}
+			defer rows.Close()
+
+			results := make([]CheckResult, 0)
+
+			for rows.Next() {
+				var result CheckResult
+				var statusCode sql.NullInt64
+				var resultError sql.NullString
+
+				if err := rows.Scan(
+					&result.ProbeID,
+					&result.Target,
+					&result.Status,
+					&statusCode,
+					&result.LatencyMS,
+					&resultError,
+					&result.Protocol,
+					&result.CheckedAt,
+				); err != nil {
+					log.Printf("Scan monitoring summary: %v", err)
+					writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+						Error: "failed to retrieve summary",
+					})
+					return
+				}
+
+				if statusCode.Valid {
+					code := int(statusCode.Int64)
+					result.StatusCode = &code
+				}
+
+				if resultError.Valid {
+					result.Error = resultError.String
+				}
+
+				results = append(results, result)
+			}
+
+			if err := rows.Err(); err != nil {
+				log.Printf("Iterate monitoring summary: %v", err)
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+					Error: "failed to retrieve summary",
+				})
+				return
+			}
+
+			writeJSON(w, http.StatusOK, SummaryResponse{
+				Data: results,
 			})
 		},
 	)))
