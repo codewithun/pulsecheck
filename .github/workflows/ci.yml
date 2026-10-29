@@ -24,9 +24,10 @@ jobs:
 
       - name: Check formatting
         run: |
-          if [ -n "$(gofmt -l cmd/pulsecheck/*.go)" ]; then
+          files="$(gofmt -l $(find cmd -type f -name '*.go'))"
+          if [ -n "$files" ]; then
             echo "Go files are not formatted:"
-            gofmt -l cmd/pulsecheck/*.go
+            echo "$files"
             exit 1
           fi
 
