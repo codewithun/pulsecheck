@@ -80,6 +80,16 @@ func main() {
 		log.Fatal("Connect to database:", err)
 	}
 
+	webhookURL := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_URL"))
+
+	if webhookURL != "" {
+		sender := newDiscordSender(webhookURL)
+		go runAlertWorker(context.Background(), db, sender)
+		log.Println("Discord alerts enabled")
+	} else {
+		log.Println("Discord alerts disabled: DISCORD_WEBHOOK_URL is not set")
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -172,23 +182,8 @@ func main() {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 
-			_, err := db.ExecContext(ctx, `
-				INSERT INTO check_results
-					(probe_id, target, status, status_code,
-					 latency_ms, error, protocol, checked_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			`,
-				result.ProbeID,
-				result.Target,
-				result.Status,
-				result.StatusCode,
-				result.LatencyMS,
-				nullIfEmpty(result.Error),
-				result.Protocol,
-				result.CheckedAt,
-			)
-			if err != nil {
-				log.Printf("Insert check result: %v", err)
+			if err := saveCheckResult(ctx, db, result); err != nil {
+				log.Printf("Save check result: %v", err)
 				writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 					Error: "failed to save result",
 				})
