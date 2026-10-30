@@ -238,3 +238,87 @@ func TestCheckTCPInvalidTarget(t *testing.T) {
 		t.Error("expected an error message for failed TCP connection")
 	}
 }
+
+func TestSendResultWithRetryEventuallySucceeds(t *testing.T) {
+	attempts := 0
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+
+			if attempts < 3 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+
+			w.WriteHeader(http.StatusCreated)
+		},
+	))
+	defer server.Close()
+
+	client := &http.Client{Timeout: time.Second}
+
+	result := CheckResult{
+		ProbeID:   "test-probe",
+		Target:    "https://example.com",
+		Status:    "UP",
+		Protocol:  "HTTP",
+		CheckedAt: time.Now().UTC(),
+	}
+
+	err := sendResultWithRetry(
+		client,
+		server.URL,
+		"test-token",
+		result,
+		3,
+		time.Millisecond,
+	)
+
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got: %v", err)
+	}
+
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestSendResultWithRetryExhausted(t *testing.T) {
+	attempts := 0
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			attempts++
+			w.WriteHeader(http.StatusServiceUnavailable)
+		},
+	))
+	defer server.Close()
+
+	client := &http.Client{Timeout: time.Second}
+
+	result := CheckResult{
+		ProbeID:   "test-probe",
+		Target:    "https://example.com",
+		Status:    "UP",
+		Protocol:  "HTTP",
+		CheckedAt: time.Now().UTC(),
+	}
+
+	err := sendResultWithRetry(
+		client,
+		server.URL,
+		"test-token",
+		result,
+		3,
+		time.Millisecond,
+	)
+
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}

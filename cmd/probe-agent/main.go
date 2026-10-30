@@ -11,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -127,16 +129,62 @@ func main() {
 			log.Printf("Check error: %s", result.Error)
 		}
 
-		if err := sendResult(
+		if err := sendResultWithRetry(
 			apiClient,
 			*apiURL,
 			apiToken,
 			result,
+			3,
+			2*time.Second,
 		); err != nil {
 			log.Printf("Send result failed: %v", err)
 		}
 
-		time.Sleep(*interval)
+		ctx, stop := signal.NotifyContext(
+			context.Background(),
+			os.Interrupt,
+			syscall.SIGTERM,
+		)
+		defer stop()
+
+		ticker := time.NewTicker(*interval)
+		defer ticker.Stop()
+
+		for {
+			var result CheckResult
+
+			switch selectedProtocol {
+			case "http":
+				result = checkHTTP(client, probeID, *target)
+			case "tcp":
+				result = checkTCP(probeID, *target, *timeout)
+			}
+
+			log.Printf(
+				"Check result: protocol=%s target=%s status=%s latency=%.2fms",
+				result.Protocol,
+				result.Target,
+				result.Status,
+				result.LatencyMS,
+			)
+
+			if result.Error != "" {
+				log.Printf("Check error: %s", result.Error)
+			}
+
+			if err := sendResultWithRetry(
+				apiClient, *apiURL, apiToken, result, 3, 2*time.Second,
+			); err != nil {
+				log.Printf("Send result failed: %v", err)
+			}
+
+			select {
+			case <-ctx.Done():
+				log.Println("Probe Agent shutting down")
+				return
+			case <-ticker.C:
+			}
+		}
 	}
 }
 
@@ -279,4 +327,38 @@ func sendResult(
 	}
 
 	return nil
+}
+
+func sendResultWithRetry(
+	client *http.Client,
+	apiURL string,
+	token string,
+	result CheckResult,
+	maxAttempts int,
+	retryDelay time.Duration,
+) error {
+	if maxAttempts < 1 {
+		return errors.New("maxAttempts must be at least 1")
+	}
+
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = sendResult(client, apiURL, token, result)
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		time.Sleep(retryDelay)
+	}
+
+	return fmt.Errorf(
+		"failed to send result after %d attempts: %w",
+		maxAttempts,
+		lastErr,
+	)
 }
