@@ -1,178 +1,90 @@
-# PulseCheck
+## Centralized Monitoring and Discord Alerting
 
-A lightweight command-line tool written in Go for checking HTTP endpoint availability and TCP port connectivity.
+PulseCheck also provides a centralized monitoring system that receives health-check results from probe agents, stores monitoring data in PostgreSQL, and sends Discord notifications when target availability changes.
 
-PulseCheck helps developers and system administrators quickly verify whether a web endpoint responds successfully or a TCP service accepts connections.
+### Architecture
 
-## Features
+- **PulseCheck CLI** — Performs HTTP and TCP health checks.
+- **Probe Agent** — Sends monitoring results to the Central API.
+- **Central API** — Receives and stores check results.
+- **PostgreSQL** — Stores check history, monitoring states, and pending alerts.
+- **Discord Alert Worker** — Processes alert events and sends notifications through a Discord webhook.
 
-- **HTTP health checks** — Check one or multiple HTTP/HTTPS endpoints.
-- **TCP port checks** — Verify connectivity to TCP services using host and port.
-- **Configurable timeout** — Set the maximum time allowed for each check.
-- **Concurrent health checks** — Check multiple targets simultaneously with a configurable concurrency limit (default: 10).
-- **Latency measurement** — Display how long each check takes.
-- **Input validation** — Reject invalid URLs, addresses, and port numbers.
-- **Summary report** — Count successful and failed checks.
-- **Automation-friendly exit codes** — Return a non-zero exit code when a check fails.
-- **Automatic retries** — Retry failed HTTP or TCP checks with a configurable number of attempts.
+### Alert Features
 
-## Requirements
+- Send a Discord notification when a target transitions from `UP` to `DOWN`.
+- Send a recovery notification when a target transitions from `DOWN` to `UP`.
+- Avoid duplicate notifications when a target remains in the same state.
+- Ignore `INVALID` results when updating operational monitoring state.
+- Store alert events in a PostgreSQL outbox before delivery.
+- Retry failed Discord deliveries using exponential backoff, capped at 15 minutes.
+- Keep monitoring operational when Discord delivery fails.
 
-- Go 1.23 or later recommended.
-- Network access to the targets being checked.
+The first valid `UP` or `DOWN` result establishes the monitoring baseline and does not trigger an alert.
 
-## Installation
+Alert delivery uses an **at-least-once** approach. In rare cases, a notification may be delivered more than once if Discord accepts it but the database cannot record the successful delivery.
 
-Clone the repository:
+### Configuration
+
+Configure the following environment variables:
+
+| Variable              | Description                              |
+| --------------------- | ---------------------------------------- |
+| `POSTGRES_PASSWORD`   | PostgreSQL password                      |
+| `DATABASE_URL`        | PostgreSQL connection string             |
+| `API_TOKEN`           | Authentication token for the Central API |
+| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications    |
+
+Create a local `.env` file based on `.env.example`. Never commit `.env` or expose your Discord webhook URL and API token.
+
+### Running the Central API
+
+Start PostgreSQL and ensure migrations have been applied. Then run:
 
 ```bash
-git clone https://github.com/codewithun/pulsecheck.git
-cd pulsecheck
+set -a
+source .env
+set +a
+
+API_ADDR=:8081 go run ./cmd/central-api
 ```
 
-Run the test suite:
+Health check:
 
 ```bash
-go test ./...
+curl http://localhost:8081/healthz
 ```
 
-Run PulseCheck directly:
+The API starts the Discord alert worker when `DISCORD_WEBHOOK_URL` is configured.
+
+### API Endpoints
+
+| Method | Endpoint          | Description                   |
+| ------ | ----------------- | ----------------------------- |
+| `GET`  | `/healthz`        | Check API and database health |
+| `POST` | `/api/v1/results` | Submit a probe result         |
+| `GET`  | `/api/v1/results` | Retrieve check results        |
+| `GET`  | `/api/v1/summary` | Retrieve monitoring summary   |
+
+The `/healthz` endpoint does not require authentication. The `/api/v1/*` endpoints require a Bearer token.
+
+### Database Migrations
+
+Database migration files are located in `migrations/`:
+
+- `001` — Initial check results schema.
+- `002` — Monitoring state.
+- `003` — Alert outbox.
+- `004` — Alert outbox claim support.
+
+Apply migrations in numerical order.
+
+### Alerting Tests
+
+Run all tests:
 
 ```bash
-go run ./cmd/pulsecheck https://google.com
-```
-
-## Usage
-
-### HTTP checks
-
-Check a single endpoint:
-
-```bash
-go run ./cmd/pulsecheck https://google.com
-```
-
-Check multiple endpoints:
-
-```bash
-go run ./cmd/pulsecheck https://google.com https://github.com
-```
-
-Set a custom timeout:
-
-```bash
-go run ./cmd/pulsecheck -timeout 2s https://google.com
-```
-
-The default timeout is 5 seconds per check.
-
-### TCP port checks
-
-Check a single TCP service:
-
-```bash
-go run ./cmd/pulsecheck -tcp localhost:5432
-```
-
-Check multiple TCP ports:
-
-```bash
-go run ./cmd/pulsecheck -tcp localhost:22 localhost:5432
-```
-
-Set a custom timeout:
-
-```bash
-go run ./cmd/pulsecheck -tcp -timeout 2s localhost:22 localhost:5432
-```
-
-TCP targets must use the `host:port` format, and port numbers must be between 1 and 65535.
-
-### Periodic checks
-
-Repeat health checks at a specified interval:
-
-```bash
-go run ./cmd/pulsecheck -interval 10s https://google.com
-```
-
-Monitor TCP connectivity:
-
-```bash
-go run ./cmd/pulsecheck -tcp -interval 5s localhost:5432
-```
-
-Periodic JSON output uses JSON Lines: each line is a separate JSON report.
-
-```bash
-go run ./cmd/pulsecheck -json -interval 10s https://google.com
-```
-
-Press `Ctrl+C` to stop periodic checks.
-
-### Concurrent Checks
-
-Check multiple targets simultaneously (default concurrency: 10):
-
-````bash
-go run ./cmd/pulsecheck -concurrency 10 https://google.com https://github.com https://go.dev
-
-## Example Output
-
-HTTP check:
-
-```text
-UP https://google.com | HTTP 200 | Latency 120ms
-
-Summary: 1 UP, 0 DOWN
-````
-
-TCP check:
-
-```text
-UP localhost:5432 | TCP connection successful | Latency: 1ms
-
-Summary: 1 UP, 0 DOWN
-```
-
-Output and latency values depend on the target and network conditions.
-
-### Retry Failed Checks
-
-Retry failed checks up to 2 times (3 attempts maximum per target):
-
-````bash
-go run ./cmd/pulsecheck -retries 2 https://google.com https://github.com
-
-## Status Definitions
-
-| Status    | Meaning                                                                                                         |
-| --------- | --------------------------------------------------------------------------------------------------------------- |
-| `UP`      | The HTTP request succeeded according to PulseCheck's status rules, or the TCP connection was established.       |
-| `DOWN`    | The request failed, the HTTP response status was 400 or higher, or the TCP connection could not be established. |
-| `INVALID` | The supplied URL, address, port, or timeout is invalid.                                                         |
-
-A `DOWN` result does not necessarily mean the entire server is offline. The service might be unavailable, the port may be closed, or a firewall may be blocking the connection.
-
-## Exit Codes
-
-- `0` — All targets passed their checks.
-- `1` — At least one target did not pass, or the command received invalid input.
-
-These exit codes make PulseCheck suitable for use in shell scripts and automation workflows.
-
-## Testing and Code Quality
-
-Run unit tests:
-
-```bash
-go test ./...
-````
-
-Check code formatting:
-
-```bash
-gofmt -w cmd/pulsecheck/*.go
+go test -count=1 ./...
 ```
 
 Run static analysis:
@@ -181,31 +93,6 @@ Run static analysis:
 go vet ./...
 ```
 
-## Project Structure
+Integration tests use a dedicated PostgreSQL test database configured through `PULSECHECK_TEST_DATABASE_URL`. The test database must be named `pulsecheck_test`.
 
-```text
-pulsecheck/
-├── cmd/
-│   └── pulsecheck/
-│       ├── main.go
-│       ├── checker.go
-│       └── checker_test.go
-├── go.mod
-└── README.md
-```
-
-## Roadmap
-
-- [x] HTTP endpoint checks
-- [x] Configurable HTTP timeout
-- [x] HTTP status and latency reporting
-- [x] HTTP redirect handling
-- [x] TCP port checks
-- [x] Unit tests
-- [ ] Continuous integration with GitHub Actions
-- [ ] JSON output for automation
-- [ ] Periodic health checks
-
-## License
-
-A license has not yet been specified. Add a `LICENSE` file before distributing the project under an open-source license.
+Discord sender tests use an HTTP test server. They do not send actual Discord messages.
