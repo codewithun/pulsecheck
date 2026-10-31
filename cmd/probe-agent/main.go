@@ -34,21 +34,31 @@ func main() {
 		"http://localhost:8081",
 		"Central API base URL",
 	)
+
 	protocol := flag.String(
 		"protocol",
 		"http",
 		"Check protocol: http or tcp",
 	)
+
 	target := flag.String(
 		"target",
-		"https://example.com",
-		"HTTP URL or TCP host:port to check",
+		"",
+		"Single monitoring target (backward compatible)",
 	)
+
+	targets := flag.String(
+		"targets",
+		"",
+		"Comma-separated list of monitoring targets",
+	)
+
 	interval := flag.Duration(
 		"interval",
 		30*time.Second,
 		"Check interval",
 	)
+
 	timeout := flag.Duration(
 		"timeout",
 		5*time.Second,
@@ -66,8 +76,9 @@ func main() {
 		log.Fatal("protocol must be either http or tcp")
 	}
 
-	if strings.TrimSpace(*target) == "" {
-		log.Fatal("target must not be empty")
+	selectedTargets, err := parseTargets(*target, *targets)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	if strings.TrimSpace(*apiURL) == "" {
@@ -98,66 +109,35 @@ func main() {
 		Timeout: 5 * time.Second,
 	}
 
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	ticker := time.NewTicker(*interval)
+	defer ticker.Stop()
+
 	log.Printf(
-		"Probe Agent %q started; protocol=%s target=%s interval=%s timeout=%s",
+		"Probe Agent %q started; protocol=%s targets=%d interval=%s timeout=%s",
 		probeID,
 		strings.ToUpper(selectedProtocol),
-		*target,
+		len(selectedTargets),
 		*interval,
 		*timeout,
 	)
 
 	for {
-		var result CheckResult
-
-		switch selectedProtocol {
-		case "http":
-			result = checkHTTP(client, probeID, *target)
-		case "tcp":
-			result = checkTCP(probeID, *target, *timeout)
-		}
-
-		log.Printf(
-			"Check result: protocol=%s target=%s status=%s latency=%.2fms",
-			result.Protocol,
-			result.Target,
-			result.Status,
-			result.LatencyMS,
-		)
-
-		if result.Error != "" {
-			log.Printf("Check error: %s", result.Error)
-		}
-
-		if err := sendResultWithRetry(
-			apiClient,
-			*apiURL,
-			apiToken,
-			result,
-			3,
-			2*time.Second,
-		); err != nil {
-			log.Printf("Send result failed: %v", err)
-		}
-
-		ctx, stop := signal.NotifyContext(
-			context.Background(),
-			os.Interrupt,
-			syscall.SIGTERM,
-		)
-		defer stop()
-
-		ticker := time.NewTicker(*interval)
-		defer ticker.Stop()
-
-		for {
+		for _, currentTarget := range selectedTargets {
 			var result CheckResult
 
 			switch selectedProtocol {
 			case "http":
-				result = checkHTTP(client, probeID, *target)
+				result = checkHTTP(client, probeID, currentTarget)
+
 			case "tcp":
-				result = checkTCP(probeID, *target, *timeout)
+				result = checkTCP(probeID, currentTarget, *timeout)
 			}
 
 			log.Printf(
@@ -169,23 +149,72 @@ func main() {
 			)
 
 			if result.Error != "" {
-				log.Printf("Check error: %s", result.Error)
+				log.Printf(
+					"Check error for %s: %s",
+					currentTarget,
+					result.Error,
+				)
 			}
 
 			if err := sendResultWithRetry(
-				apiClient, *apiURL, apiToken, result, 3, 2*time.Second,
+				apiClient,
+				*apiURL,
+				apiToken,
+				result,
+				3,
+				2*time.Second,
 			); err != nil {
-				log.Printf("Send result failed: %v", err)
-			}
-
-			select {
-			case <-ctx.Done():
-				log.Println("Probe Agent shutting down")
-				return
-			case <-ticker.C:
+				log.Printf(
+					"Send result failed for %s: %v",
+					currentTarget,
+					err,
+				)
 			}
 		}
+
+		select {
+		case <-ctx.Done():
+			log.Println("Probe Agent shutting down")
+			return
+
+		case <-ticker.C:
+		}
 	}
+}
+
+func parseTargets(singleTarget string, multiTargets string) ([]string, error) {
+	if strings.TrimSpace(multiTargets) == "" {
+		singleTarget = strings.TrimSpace(singleTarget)
+
+		if singleTarget == "" {
+			return nil, errors.New(
+				"target must not be empty; use -target or -targets",
+			)
+		}
+
+		return []string{singleTarget}, nil
+	}
+
+	parts := strings.Split(multiTargets, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		currentTarget := strings.TrimSpace(part)
+
+		if currentTarget == "" {
+			return nil, errors.New(
+				"targets contains an empty target; check comma-separated values",
+			)
+		}
+
+		result = append(result, currentTarget)
+	}
+
+	if len(result) == 0 {
+		return nil, errors.New("at least one target is required")
+	}
+
+	return result, nil
 }
 
 func checkHTTP(
