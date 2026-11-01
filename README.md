@@ -57,6 +57,83 @@ curl http://localhost:8081/healthz
 
 The API starts the Discord alert worker when `DISCORD_WEBHOOK_URL` is configured.
 
+### Probe Agent Configuration
+
+The Probe Agent supports JSON-based per-target configuration. Each target can define its own name, protocol, monitoring interval, and timeout.
+
+Create a `targets.example.json` file:
+
+```json
+{
+  "targets": [
+    {
+      "name": "Google",
+      "target": "https://google.com",
+      "protocol": "http",
+      "interval": "30s",
+      "timeout": "5s"
+    },
+    {
+      "name": "GitHub",
+      "target": "https://github.com",
+      "protocol": "http",
+      "interval": "60s",
+      "timeout": "10s"
+    },
+    {
+      "name": "PostgreSQL",
+      "target": "localhost:5433",
+      "protocol": "tcp",
+      "interval": "10s",
+      "timeout": "3s"
+    }
+  ]
+}
+```
+
+#### Configuration Fields
+
+| Field      | Description                             |
+| ---------- | --------------------------------------- |
+| `name`     | Human-readable target name used in logs |
+| `target`   | URL or host and port to monitor         |
+| `protocol` | Monitoring protocol: `http` or `tcp`    |
+| `interval` | Time between consecutive checks         |
+| `timeout`  | Maximum duration for each check         |
+
+All fields are required. Interval and timeout must be positive duration values.
+
+#### Running the Probe Agent
+
+Ensure the Central API is running and `API_TOKEN` is configured in `.env`.
+
+```bash
+set -a
+source .env
+set +a
+
+go run ./cmd/probe-agent \
+  -api http://localhost:8081 \
+  -config targets.example.json
+```
+
+Each target runs independently with its configured interval and timeout. The Probe Agent supports concurrent monitoring of multiple targets.
+
+#### Legacy Configuration
+
+For backward compatibility, the Probe Agent also supports command-line target configuration:
+
+```bash
+go run ./cmd/probe-agent \
+  -api http://localhost:8081 \
+  -protocol http \
+  -targets https://google.com,https://github.com \
+  -interval 30s \
+  -timeout 5s
+```
+
+When `-config` is provided, JSON configuration takes precedence over the legacy target flags.
+
 ### API Endpoints
 
 | Method | Endpoint          | Description                   |

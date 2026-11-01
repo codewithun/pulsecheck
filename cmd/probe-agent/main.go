@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -33,6 +34,12 @@ func main() {
 		"api",
 		"http://localhost:8081",
 		"Central API base URL",
+	)
+
+	configPath := flag.String(
+		"config",
+		"",
+		"Path to JSON target configuration file",
 	)
 
 	protocol := flag.String(
@@ -56,29 +63,52 @@ func main() {
 	interval := flag.Duration(
 		"interval",
 		30*time.Second,
-		"Check interval",
+		"Check interval for legacy target flags",
 	)
 
 	timeout := flag.Duration(
 		"timeout",
 		5*time.Second,
-		"Request or connection timeout",
+		"Request or connection timeout for legacy target flags",
 	)
 
 	flag.Parse()
 
-	if *interval <= 0 || *timeout <= 0 {
-		log.Fatal("interval and timeout must be positive")
-	}
+	var selectedTargets []TargetConfig
 
-	selectedProtocol := strings.ToLower(strings.TrimSpace(*protocol))
-	if selectedProtocol != "http" && selectedProtocol != "tcp" {
-		log.Fatal("protocol must be either http or tcp")
-	}
+	if strings.TrimSpace(*configPath) != "" {
+		configs, err := LoadConfig(*configPath)
+		if err != nil {
+			log.Fatalf("Load configuration: %v", err)
+		}
 
-	selectedTargets, err := parseTargets(*target, *targets)
-	if err != nil {
-		log.Fatal(err)
+		selectedTargets = configs
+
+	} else {
+		if *interval <= 0 || *timeout <= 0 {
+			log.Fatal("interval and timeout must be positive")
+		}
+
+		selectedProtocol := strings.ToLower(strings.TrimSpace(*protocol))
+
+		if selectedProtocol != "http" && selectedProtocol != "tcp" {
+			log.Fatal("protocol must be either http or tcp")
+		}
+
+		legacyTargets, err := parseTargets(*target, *targets)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for i, currentTarget := range legacyTargets {
+			selectedTargets = append(selectedTargets, TargetConfig{
+				Name:     fmt.Sprintf("Target-%d", i+1),
+				Target:   currentTarget,
+				Protocol: selectedProtocol,
+				Interval: *interval,
+				Timeout:  *timeout,
+			})
+		}
 	}
 
 	if strings.TrimSpace(*apiURL) == "" {
@@ -95,8 +125,61 @@ func main() {
 		probeID = "probe-local"
 	}
 
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	apiClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	var wg sync.WaitGroup
+
+	log.Printf(
+		"Probe Agent %q started; targets=%d",
+		probeID,
+		len(selectedTargets),
+	)
+
+	for _, config := range selectedTargets {
+		wg.Add(1)
+
+		go func(config TargetConfig) {
+			defer wg.Done()
+
+			runTarget(
+				ctx,
+				probeID,
+				config,
+				*apiURL,
+				apiToken,
+				apiClient,
+			)
+		}(config)
+	}
+
+	<-ctx.Done()
+
+	log.Println("Probe Agent shutting down")
+
+	wg.Wait()
+
+	log.Println("All target workers stopped")
+}
+
+func runTarget(
+	ctx context.Context,
+	probeID string,
+	config TargetConfig,
+	apiURL string,
+	apiToken string,
+	apiClient *http.Client,
+) {
 	client := &http.Client{
-		Timeout: *timeout,
+		Timeout: config.Timeout,
 		CheckRedirect: func(
 			req *http.Request,
 			via []*http.Request,
@@ -105,79 +188,70 @@ func main() {
 		},
 	}
 
-	apiClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer stop()
-
-	ticker := time.NewTicker(*interval)
-	defer ticker.Stop()
-
 	log.Printf(
-		"Probe Agent %q started; protocol=%s targets=%d interval=%s timeout=%s",
-		probeID,
-		strings.ToUpper(selectedProtocol),
-		len(selectedTargets),
-		*interval,
-		*timeout,
+		"Target worker started: name=%s protocol=%s target=%s interval=%s timeout=%s",
+		config.Name,
+		strings.ToUpper(config.Protocol),
+		config.Target,
+		config.Interval,
+		config.Timeout,
 	)
 
 	for {
-		for _, currentTarget := range selectedTargets {
-			var result CheckResult
-
-			switch selectedProtocol {
-			case "http":
-				result = checkHTTP(client, probeID, currentTarget)
-
-			case "tcp":
-				result = checkTCP(probeID, currentTarget, *timeout)
-			}
-
-			log.Printf(
-				"Check result: protocol=%s target=%s status=%s latency=%.2fms",
-				result.Protocol,
-				result.Target,
-				result.Status,
-				result.LatencyMS,
-			)
-
-			if result.Error != "" {
-				log.Printf(
-					"Check error for %s: %s",
-					currentTarget,
-					result.Error,
-				)
-			}
-
-			if err := sendResultWithRetry(
-				apiClient,
-				*apiURL,
-				apiToken,
-				result,
-				3,
-				2*time.Second,
-			); err != nil {
-				log.Printf(
-					"Send result failed for %s: %v",
-					currentTarget,
-					err,
-				)
-			}
+		if ctx.Err() != nil {
+			return
 		}
+
+		var result CheckResult
+
+		switch config.Protocol {
+		case "http":
+			result = checkHTTP(client, probeID, config.Target)
+
+		case "tcp":
+			result = checkTCP(probeID, config.Target, config.Timeout)
+		}
+
+		log.Printf(
+			"Check result: name=%s protocol=%s target=%s status=%s latency=%.2fms",
+			config.Name,
+			result.Protocol,
+			result.Target,
+			result.Status,
+			result.LatencyMS,
+		)
+
+		if result.Error != "" {
+			log.Printf(
+				"Check error for %s: %s",
+				config.Name,
+				result.Error,
+			)
+		}
+
+		if err := sendResultWithRetry(
+			apiClient,
+			apiURL,
+			apiToken,
+			result,
+			3,
+			2*time.Second,
+		); err != nil {
+			log.Printf(
+				"Send result failed for %s: %v",
+				config.Name,
+				err,
+			)
+		}
+
+		timer := time.NewTimer(config.Interval)
 
 		select {
 		case <-ctx.Done():
-			log.Println("Probe Agent shutting down")
+			timer.Stop()
 			return
 
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }
