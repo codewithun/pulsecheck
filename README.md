@@ -134,6 +134,58 @@ go run ./cmd/probe-agent \
 
 When `-config` is provided, JSON configuration takes precedence over the legacy target flags.
 
+### Agent Heartbeat
+
+PulseCheck includes an agent heartbeat mechanism to track the availability of registered Probe Agents independently from their monitoring targets.
+
+Each Probe Agent automatically sends a heartbeat to the Central API every 30 seconds through a dedicated background worker.
+
+**Heartbeat Features**
+
+- Automatically registers agents using their hostname as the probe ID.
+- Sends heartbeat updates every 30 seconds.
+- Updates the agent's `last_seen` timestamp in PostgreSQL.
+- Determines agent availability based on the last heartbeat received.
+- Marks agents as `ONLINE` when the last heartbeat was received within 90 seconds.
+- Marks agents as `OFFLINE` when no heartbeat has been received for more than 90 seconds.
+- Runs independently from target monitoring workers.
+- Stops gracefully when the Probe Agent receives a shutdown signal.
+
+**Agent API Endpoints**
+
+| Method | Endpoint                   | Description                                   |
+| ------ | -------------------------- | --------------------------------------------- |
+| `POST` | `/api/v1/agents/heartbeat` | Register an agent or update its heartbeat     |
+| `GET`  | `/api/v1/agents`           | Retrieve registered agents and their statuses |
+
+Both endpoints require Bearer token authentication.
+
+**Example: Heartbeat Request**
+
+```json
+{
+  "probe_id": "192.168.1.8",
+  "hostname": "macbook"
+}
+```
+
+**Example: Agent List Response**
+
+```json
+{
+  "data": [
+    {
+      "probe_id": "192.168.1.8",
+      "hostname": "macbook",
+      "last_seen": "2026-11-02T19:51:43+07:00",
+      "status": "ONLINE"
+    }
+  ]
+}
+```
+
+The heartbeat worker does not interrupt target monitoring when the Central API is temporarily unavailable. Failed heartbeat requests are logged, and the worker retries on its next scheduled interval.
+
 ### API Endpoints
 
 | Method | Endpoint          | Description                   |
@@ -153,6 +205,7 @@ Database migration files are located in `migrations/`:
 - `002` — Monitoring state.
 - `003` — Alert outbox.
 - `004` — Alert outbox claim support.
+- `005` — Registered agents and heartbeat tracking.
 
 Apply migrations in numerical order.
 

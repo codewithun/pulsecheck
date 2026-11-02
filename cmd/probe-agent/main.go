@@ -120,10 +120,12 @@ func main() {
 		log.Fatal("API_TOKEN is required")
 	}
 
-	probeID, err := os.Hostname()
-	if err != nil || strings.TrimSpace(probeID) == "" {
-		probeID = "probe-local"
+	hostname, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		hostname = "probe-local"
 	}
+
+	probeID := hostname
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -143,6 +145,22 @@ func main() {
 		probeID,
 		len(selectedTargets),
 	)
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		runHeartbeat(
+			ctx,
+			apiClient,
+			*apiURL,
+			apiToken,
+			probeID,
+			hostname,
+			30*time.Second,
+		)
+	}()
 
 	for _, config := range selectedTargets {
 		wg.Add(1)

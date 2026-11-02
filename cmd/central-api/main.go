@@ -92,6 +92,16 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.Handle(
+		"GET /api/v1/agents",
+		authenticate(apiToken, http.HandlerFunc(agentsListHandler(db))),
+	)
+
+	mux.Handle(
+		"POST /api/v1/agents/heartbeat",
+		authenticate(apiToken, http.HandlerFunc(agentHeartbeatHandler(db))),
+	)
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
