@@ -32,6 +32,10 @@ func openTestDB(t *testing.T) *sql.DB {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("ping test database: %v", err)
+	}
+
 	var databaseName string
 	if err := db.QueryRowContext(ctx, "SELECT current_database()").Scan(&databaseName); err != nil {
 		t.Fatalf("identify test database: %v", err)
@@ -40,7 +44,12 @@ func openTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("refusing to run integration test against database %q", databaseName)
 	}
 
-	for _, table := range []string{"check_results", "monitoring_state", "alert_outbox"} {
+	for _, table := range []string{
+		"agents",
+		"check_results",
+		"monitoring_state",
+		"alert_outbox",
+	} {
 		var exists bool
 		err := db.QueryRowContext(ctx, `
 			SELECT to_regclass($1) IS NOT NULL

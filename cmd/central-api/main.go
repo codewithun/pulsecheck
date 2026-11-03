@@ -98,6 +98,16 @@ func main() {
 	)
 
 	mux.Handle(
+		"GET /api/v1/overview",
+		authenticate(apiToken, http.HandlerFunc(overviewHandler(db))),
+	)
+
+	mux.Handle(
+		"GET /api/v1/targets",
+		authenticate(apiToken, http.HandlerFunc(targetsHandler(db))),
+	)
+
+	mux.Handle(
 		"POST /api/v1/agents/heartbeat",
 		authenticate(apiToken, http.HandlerFunc(agentHeartbeatHandler(db))),
 	)
