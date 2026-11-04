@@ -108,6 +108,11 @@ func main() {
 	)
 
 	mux.Handle(
+		"GET /api/v1/targets/history",
+		authenticate(apiToken, http.HandlerFunc(targetHistoryHandler(db))),
+	)
+
+	mux.Handle(
 		"POST /api/v1/agents/heartbeat",
 		authenticate(apiToken, http.HandlerFunc(agentHeartbeatHandler(db))),
 	)

@@ -205,6 +205,7 @@ All `/api/v1/*` endpoints require Bearer token authentication.
 | `GET`  | `/api/v1/targets`          | Retrieve monitored targets with operational status and latest check information |
 | `POST` | `/api/v1/agents/heartbeat` | Register an agent or update its heartbeat                                       |
 | `GET`  | `/api/v1/agents`           | Retrieve registered agents and their statuses                                   |
+| `GET`  | `/api/v1/targets/history`  | Retrieve check history for a specific probe and target                          |
 
 The `/healthz` endpoint does not require authentication.
 
@@ -355,6 +356,98 @@ Examples include:
 - Unsupported `status` values.
 - Unsupported `period` values.
 
+## Target Check History API
+
+The Target Check History API provides historical health-check records for a specific target monitored by a Probe Agent.
+
+Each history is identified by the exact combination of `probe_id` and `target`. This ensures that monitoring records from different agents remain independent, even when they monitor the same destination.
+
+### Endpoint
+
+```http
+GET /api/v1/targets/history
+```
+
+### Query Parameters
+
+| Parameter  | Required | Default     | Description                                         |
+| ---------- | -------- | ----------- | --------------------------------------------------- |
+| `probe_id` | Yes      | —           | Exact ID of the monitoring agent                    |
+| `target`   | Yes      | —           | Exact monitored URL or host and port                |
+| `period`   | No       | All history | Time window: `1h`, `24h`, `7d`, or `30d`            |
+| `limit`    | No       | `50`        | Number of records to return. Minimum 1, maximum 100 |
+| `offset`   | No       | `0`         | Number of records to skip. Must be non-negative     |
+
+When `period` is omitted, all historical check records for the specified probe and target are included.
+
+History records include `UP`, `DOWN`, and `INVALID` statuses and are sorted by `checked_at` in descending order, with `id` as a secondary sorting key.
+
+### Example: Retrieve Target History
+
+```bash
+curl -sS -G "http://localhost:8081/api/v1/targets/history" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  --data-urlencode "probe_id=192.168.1.8" \
+  --data-urlencode "target=https://google.com" \
+  --data-urlencode "period=30d" \
+  --data-urlencode "limit=10"
+```
+
+### Example Response
+
+```json
+{
+  "data": [
+    {
+      "id": 45,
+      "probe_id": "192.168.1.8",
+      "target": "https://google.com",
+      "status": "UP",
+      "status_code": 301,
+      "latency_ms": 36.524,
+      "protocol": "HTTP",
+      "checked_at": "2026-11-02T19:51:43.302929+07:00",
+      "received_at": "2026-11-02T19:51:43.339932+07:00"
+    }
+  ],
+  "limit": 10,
+  "offset": 0,
+  "has_more": false
+}
+```
+
+### Response Fields
+
+| Field         | Description                                        |
+| ------------- | -------------------------------------------------- |
+| `id`          | Unique check result ID                             |
+| `probe_id`    | ID of the monitoring agent                         |
+| `target`      | Monitored URL or host and port                     |
+| `status`      | Check result: `UP`, `DOWN`, or `INVALID`           |
+| `status_code` | HTTP response status code, when available          |
+| `latency_ms`  | Check latency in milliseconds                      |
+| `error`       | Error message when available                       |
+| `protocol`    | Check protocol: `HTTP` or `TCP`                    |
+| `checked_at`  | Timestamp when the health check was performed      |
+| `received_at` | Timestamp when the Central API received the result |
+| `limit`       | Maximum number of records requested                |
+| `offset`      | Number of records skipped                          |
+| `has_more`    | Indicates whether additional records are available |
+
+### Error Responses
+
+Invalid or missing required parameters return HTTP `400 Bad Request`.
+
+Examples include:
+
+- Missing or empty `probe_id`.
+- Missing or empty `target`.
+- `limit` outside the range of 1–100.
+- Negative or invalid `offset`.
+- Unsupported `period` values.
+
+All requests require Bearer token authentication.
+
 ## Overview API
 
 The Overview API provides aggregated monitoring statistics for the dashboard.
@@ -398,6 +491,7 @@ Database migration files are located in `migrations/`:
 - `003` — Alert outbox.
 - `004` — Alert outbox claim support.
 - `005` — Registered agents and heartbeat tracking.
+- `006` — Composite index for target check history queries.
 
 Apply migrations in numerical order.
 
