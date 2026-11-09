@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   CheckCircle2,
@@ -348,9 +349,12 @@ export default function TargetsTable({
                         className="transition hover:bg-slate-50"
                       >
                         <td className="px-5 py-4">
-                          <p className="font-medium text-slate-900">
-                            {target.target}
-                          </p>
+                         <Link
+                              href={`/targets/detail?probe_id=${encodeURIComponent(target.probe_id)}&target=${encodeURIComponent(target.target)}`}
+                              className="font-medium text-blue-600 transition hover:text-blue-800 hover:underline"
+                            >
+                              {target.target}
+                            </Link>
                           {target.error && (
                             <p className="mt-1 max-w-xs truncate text-xs text-red-500">
                               {target.error}

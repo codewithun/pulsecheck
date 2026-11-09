@@ -65,3 +65,24 @@ export interface TargetsResponse {
   offset: number;
   has_more: boolean;
 }
+
+
+export interface TargetCheck {
+  id: number;
+  probe_id: string;
+  target: string;
+  status: "UP" | "DOWN" | "INVALID";
+  status_code: number | null;
+  latency_ms: number | null;
+  error?: string;
+  protocol: string;
+  checked_at: string;
+  received_at: string;
+}
+
+export interface TargetHistoryResponse {
+  data: TargetCheck[];
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
