@@ -1,10 +1,22 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 
 import DashboardShell from "@/components/layout/dashboard-shell";
 import TargetsTable from "@/components/targets/targets-table";
 import { getTargets } from "@/lib/api/targets";
 import type { TargetsResponse } from "@/lib/api/types";
 
-export default async function TargetsPage() {
+function LoadingFallback() {
+  return (
+    <div className="flex min-h-64 items-center justify-center">
+      <p className="text-sm text-slate-500">Loading targets...</p>
+    </div>
+  );
+}
+
+async function TargetsContent() {
+  await connection();
+
   let initialTargets: TargetsResponse = {
     data: [],
     limit: 10,
@@ -25,11 +37,19 @@ export default async function TargetsPage() {
   }
 
   return (
+    <TargetsTable
+      initialTargets={initialTargets}
+      apiError={apiError}
+    />
+  );
+}
+
+export default function TargetsPage() {
+  return (
     <DashboardShell>
-      <TargetsTable
-        initialTargets={initialTargets}
-        apiError={apiError}
-      />
+      <Suspense fallback={<LoadingFallback />}>
+        <TargetsContent />
+      </Suspense>
     </DashboardShell>
   );
 }

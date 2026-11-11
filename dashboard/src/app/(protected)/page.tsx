@@ -1,9 +1,22 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
+
 import DashboardShell from "@/components/layout/dashboard-shell";
 import OverviewDashboard from "@/components/overview/overview-dashboard";
 import { getOverview } from "@/lib/api/overview";
 import type { OverviewResponse } from "@/lib/api/types";
 
-export default async function Home() {
+function LoadingFallback() {
+  return (
+    <div className="flex min-h-64 items-center justify-center">
+      <p className="text-sm text-slate-500">Loading overview...</p>
+    </div>
+  );
+}
+
+async function OverviewContent() {
+  await connection();
+
   let overview: OverviewResponse | null = null;
   let apiError = false;
 
@@ -15,11 +28,19 @@ export default async function Home() {
   }
 
   return (
+    <OverviewDashboard
+      overview={overview}
+      apiError={apiError}
+    />
+  );
+}
+
+export default function Home() {
+  return (
     <DashboardShell>
-      <OverviewDashboard
-        overview={overview}
-        apiError={apiError}
-      />
+      <Suspense fallback={<LoadingFallback />}>
+        <OverviewContent />
+      </Suspense>
     </DashboardShell>
   );
 }

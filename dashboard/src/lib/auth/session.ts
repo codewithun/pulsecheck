@@ -8,6 +8,9 @@ import { redirect } from "next/navigation";
 const SESSION_COOKIE = "pulsecheck_session";
 const SESSION_DURATION = 60 * 60 * 24 * 7;
 
+const SESSION_ISSUER = "pulsecheck-dashboard";
+const SESSION_AUDIENCE = "pulsecheck-dashboard";
+
 function getSessionSecret(): Uint8Array {
   const secret = process.env.SESSION_SECRET;
 
@@ -24,6 +27,8 @@ export async function createSession(username: string): Promise<void> {
   const token = await new SignJWT({ username })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .setExpirationTime("7d")
     .sign(getSessionSecret());
 
@@ -49,7 +54,11 @@ export async function verifySession(): Promise<{
   }
 
   try {
-    const { payload } = await jwtVerify(token, getSessionSecret());
+    const { payload } = await jwtVerify(token, getSessionSecret(), {
+      algorithms: ["HS256"],
+      issuer: SESSION_ISSUER,
+      audience: SESSION_AUDIENCE,
+    });
 
     if (typeof payload.username !== "string") {
       return null;

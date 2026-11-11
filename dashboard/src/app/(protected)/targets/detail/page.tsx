@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { notFound } from "next/navigation";
 
 import DashboardShell from "@/components/layout/dashboard-shell";
@@ -12,10 +14,23 @@ interface TargetDetailPageProps {
   }>;
 }
 
-export default async function TargetDetailPage({
+function LoadingFallback() {
+  return (
+    <div className="flex min-h-64 items-center justify-center">
+      <p className="text-sm text-slate-500">
+        Loading target details...
+      </p>
+    </div>
+  );
+}
+
+async function TargetDetailContent({
   searchParams,
 }: TargetDetailPageProps) {
+  await connection();
+
   const params = await searchParams;
+
   const probeId = params.probe_id;
   const targetUrl = params.target;
 
@@ -48,11 +63,21 @@ export default async function TargetDetailPage({
   }
 
   return (
+    <TargetDetail
+      target={target}
+      initialHistory={historyResponse}
+    />
+  );
+}
+
+export default function TargetDetailPage({
+  searchParams,
+}: TargetDetailPageProps) {
+  return (
     <DashboardShell>
-      <TargetDetail
-        target={target}
-        initialHistory={historyResponse}
-      />
+      <Suspense fallback={<LoadingFallback />}>
+        <TargetDetailContent searchParams={searchParams} />
+      </Suspense>
     </DashboardShell>
   );
 }

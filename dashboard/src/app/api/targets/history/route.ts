@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 
 import { verifySession } from "@/lib/auth/session";
@@ -8,16 +7,16 @@ import { CentralApiError } from "@/lib/api/central-api";
 const VALID_PERIODS = ["1h", "24h", "7d", "30d"];
 
 export async function GET(request: NextRequest) {
+  const session = await verifySession();
+
+  if (!session) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 },
+    );
+  }
+
   try {
-    const session = await verifySession();
-
-    if (!session) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 },
-      );
-    }
-
     const params = request.nextUrl.searchParams;
 
     const probe_id = params.get("probe_id")?.trim();
@@ -62,7 +61,9 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(result, {
-      headers: { "Cache-Control": "no-store" },
+      headers: {
+        "Cache-Control": "no-store",
+      },
     });
   } catch (error) {
     if (error instanceof CentralApiError) {
