@@ -96,6 +96,10 @@ func main() {
 		"GET /api/v1/agents",
 		authenticate(apiToken, http.HandlerFunc(agentsListHandler(db))),
 	)
+	mux.Handle(
+		"GET /api/v1/agents/{probe_id}",
+		authenticate(apiToken, http.HandlerFunc(agentDetailHandler(db))),
+	)
 
 	mux.Handle(
 		"GET /api/v1/overview",
