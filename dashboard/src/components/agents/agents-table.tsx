@@ -1,4 +1,4 @@
-
+import Link from "next/link";
 import {
   CircleCheck,
   CircleX,
@@ -224,10 +224,12 @@ export default function AgentsTable({
                           </div>
 
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">
+                            <Link
+                              href={`/agents/${encodeURIComponent(agent.probe_id)}`}
+                              className="text-sm font-semibold text-blue-600 transition hover:text-blue-800 hover:underline"
+                              >
                               {agent.hostname}
-                            </p>
-
+                            </Link>
                             <p className="text-xs text-slate-400">
                               Probe Agent
                             </p>

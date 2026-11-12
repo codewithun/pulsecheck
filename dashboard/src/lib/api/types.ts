@@ -11,6 +11,17 @@ export interface AgentsResponse {
   data: Agent[];
 }
 
+export interface AgentDetailResponse {
+  agent: Agent;
+  summary: {
+    total: number;
+    up: number;
+    down: number;
+    unknown: number;
+  };
+  targets: TargetsResponse;
+}
+
 export interface OverviewResponse {
   period: OverviewPeriod;
 
