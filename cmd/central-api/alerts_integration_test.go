@@ -49,6 +49,10 @@ func openTestDB(t *testing.T) *sql.DB {
 		"check_results",
 		"monitoring_state",
 		"alert_outbox",
+		"target_groups",
+		"target_group_assignments",
+		"target_tags",
+		"target_tag_assignments",
 	} {
 		var exists bool
 		err := db.QueryRowContext(ctx, `

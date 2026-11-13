@@ -26,8 +26,30 @@ func TestOverviewIntegration(t *testing.T) {
 		_, _ = db.Exec(`DELETE FROM agents WHERE probe_id = $1`, probeID)
 	})
 
+	// Capture existing agent statistics before inserting test data.
+	var agentsBefore OverviewAgentStats
+
+	err := db.QueryRow(`
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (
+				WHERE last_seen >= NOW() - INTERVAL '90 seconds'
+			),
+			COUNT(*) FILTER (
+				WHERE last_seen < NOW() - INTERVAL '90 seconds'
+			)
+		FROM agents
+	`).Scan(
+		&agentsBefore.Total,
+		&agentsBefore.Online,
+		&agentsBefore.Offline,
+	)
+	if err != nil {
+		t.Fatalf("get initial agent stats: %v", err)
+	}
+
 	// Create one online and one offline agent.
-	_, err := db.Exec(`
+	_, err = db.Exec(`
 		INSERT INTO agents (probe_id, hostname, last_seen)
 		VALUES
 			($1, 'overview-online', NOW()),
@@ -99,10 +121,15 @@ func TestOverviewIntegration(t *testing.T) {
 		t.Errorf("period = %q, want 24h", response.Period)
 	}
 
-	if response.Agents.Total != 2 ||
-		response.Agents.Online != 1 ||
-		response.Agents.Offline != 1 {
-		t.Errorf("unexpected agent stats: %+v", response.Agents)
+	// Agent statistics include existing database records.
+	if response.Agents.Total != agentsBefore.Total+2 ||
+		response.Agents.Online != agentsBefore.Online+1 ||
+		response.Agents.Offline != agentsBefore.Offline+1 {
+		t.Errorf(
+			"unexpected agent stats: before=%+v, after=%+v",
+			agentsBefore,
+			response.Agents,
+		)
 	}
 
 	if response.Targets.Total != 3 ||

@@ -116,6 +116,48 @@ func main() {
 		authenticate(apiToken, http.HandlerFunc(targetHistoryHandler(db))),
 	)
 
+	// Target groups
+	mux.Handle(
+		"GET /api/v1/target-groups",
+		authenticate(apiToken, http.HandlerFunc(targetGroupsHandler(db))),
+	)
+	mux.Handle(
+		"POST /api/v1/target-groups",
+		authenticate(apiToken, http.HandlerFunc(targetGroupsHandler(db))),
+	)
+	mux.Handle(
+		"PATCH /api/v1/target-groups/{id}",
+		authenticate(apiToken, http.HandlerFunc(targetGroupsHandler(db))),
+	)
+	mux.Handle(
+		"DELETE /api/v1/target-groups/{id}",
+		authenticate(apiToken, http.HandlerFunc(targetGroupsHandler(db))),
+	)
+
+	// Target tags
+	mux.Handle(
+		"GET /api/v1/target-tags",
+		authenticate(apiToken, http.HandlerFunc(targetTagsHandler(db))),
+	)
+	mux.Handle(
+		"POST /api/v1/target-tags",
+		authenticate(apiToken, http.HandlerFunc(targetTagsHandler(db))),
+	)
+	mux.Handle(
+		"DELETE /api/v1/target-tags/{id}",
+		authenticate(apiToken, http.HandlerFunc(targetTagsHandler(db))),
+	)
+
+	// Target metadata
+	mux.Handle(
+		"GET /api/v1/target-metadata",
+		authenticate(apiToken, http.HandlerFunc(targetMetadataHandler(db))),
+	)
+	mux.Handle(
+		"PUT /api/v1/target-metadata",
+		authenticate(apiToken, http.HandlerFunc(targetMetadataHandler(db))),
+	)
+
 	mux.Handle(
 		"POST /api/v1/agents/heartbeat",
 		authenticate(apiToken, http.HandlerFunc(agentHeartbeatHandler(db))),
