@@ -1,5 +1,6 @@
 "use client";
 
+import TargetMetadataManager from "@/components/targets/target-metadata-manager";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -256,6 +257,11 @@ export default function TargetDetail({
           </p>
         </div>
       )}
+
+      <TargetMetadataManager
+      probeId={target.probe_id}
+      target={target.target}
+      />
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

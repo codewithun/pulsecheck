@@ -97,3 +97,48 @@ export interface TargetHistoryResponse {
   offset: number;
   has_more: boolean;
 }
+
+export interface TargetGroup {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TargetTag {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+export interface TargetMetadata {
+  probe_id: string;
+  target: string;
+  group: TargetGroup | null;
+  tags: TargetTag[];
+}
+
+export interface TargetGroupsResponse {
+  data: TargetGroup[];
+}
+
+export interface TargetTagsResponse {
+  data: TargetTag[];
+}
+
+export interface CreateTargetGroupRequest {
+  name: string;
+  description: string;
+}
+
+export interface CreateTargetTagRequest {
+  name: string;
+}
+
+export interface UpdateTargetMetadataRequest {
+  probe_id: string;
+  target: string;
+  group_id: number | null;
+  tags: number[];
+}
